@@ -1,0 +1,87 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  # Step 1: Define the SSM Parameter
+  SSMParameter:
+    Type: AWS::SSM::Parameter
+    Properties: 
+      Name: "UserName"
+      Type: "String"
+      Value: "JohnDoe"
+      
+  # Step 2: Create the S3 bucket
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties: 
+      BucketName: "my-exercise-bucket-dxc-12345"
+
+  # Step 3: Create the IAM Role for Lambda function
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: 
+                  - !Sub "arn:aws:s3:::${S3Bucket}/*"
+              - Effect: Allow
+                Action: 
+                  - ssm:GetParameter
+                Resource: 
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/UserName"
+  
+  # Step 4: Define the Lambda function
+  ExerciseLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "exercise-lambda"
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          
+          def lambda_handler(event, context):
+              ssm = boto3.client('ssm')
+              s3 = boto3.client('s3')
+              
+              # Retrieve SSM Parameter
+              parameter = ssm.get_parameter(Name='UserName')
+              parameter_value = parameter['Parameter']['Value']
+              
+              # Define S3 bucket and file name
+              bucket_name = 'my-exercise-bucket-dxc-12345'
+              file_name = 'parameter_store_value.txt'
+              
+              # Store the parameter value into the file in S3 bucket
+              s3.put_object(Bucket=bucket_name, Key=file_name, Body=parameter_value)
+              
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('Successfully retrieved SSM parameter and stored it in S3')
+              }
+      Runtime: python3.8
+      Timeout: 30
+
+Outputs:
+  LambdaFunctionArn:
+    Description: "ARN of the exercise-lambda function"
+    Value: !GetAtt ExerciseLambdaFunction.Arn
